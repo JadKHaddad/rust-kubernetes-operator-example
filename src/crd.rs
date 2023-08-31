@@ -12,8 +12,17 @@ use serde::{Deserialize, Serialize};
     kind = "Echo",
     plural = "echoes",
     derive = "PartialEq",
+    status = "EchoStatus",
     namespaced
 )]
 pub struct EchoSpec {
     pub replicas: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub enum EchoStatus {
+    #[serde(rename = "ok")]
+    Ok,
+    #[serde(rename = "error")]
+    Error,
 }

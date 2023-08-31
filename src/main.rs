@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use futures::stream::StreamExt;
 use kube::runtime::watcher::Config;
+use kube::CustomResourceExt;
 use kube::Resource;
 use kube::ResourceExt;
 use kube::{client::Client, runtime::controller::Action, runtime::Controller, Api};
@@ -15,6 +16,7 @@ mod finalizer;
 
 #[tokio::main]
 async fn main() {
+    println!("{}", serde_yaml::to_string(&Echo::crd()).unwrap());
     // First, a Kubernetes client must be obtained using the `kube` crate
     // The client will later be moved to the custom controller
     let kubernetes_client: Client = Client::try_default()
@@ -35,8 +37,8 @@ async fn main() {
         .run(reconcile, on_error, context)
         .for_each(|reconciliation_result| async move {
             match reconciliation_result {
-                Ok(echo_resource) => {
-                    println!("Reconciliation successful. Resource: {:?}", echo_resource);
+                Ok(_) => {
+                    println!("\n\nReconciliation successful\n\n");
                 }
                 Err(reconciliation_err) => {
                     eprintln!("Reconciliation error: {:?}", reconciliation_err)
@@ -75,7 +77,7 @@ enum EchoAction {
 
 async fn reconcile(echo: Arc<Echo>, context: Arc<ContextData>) -> Result<Action, Error> {
     let client: Client = context.client.clone(); // The `Client` is shared -> a clone from the reference is obtained
-
+    println!("Reconciling: {:#?}", echo);
     // The resource of `Echo` kind is required to have a namespace set. However, it is not guaranteed
     // the resource will have a `namespace` set. Therefore, the `namespace` field on object's metadata
     // is optional and Rust forces the programmer to check for it's existence first.
@@ -94,7 +96,7 @@ async fn reconcile(echo: Arc<Echo>, context: Arc<ContextData>) -> Result<Action,
     let name = echo.name_any(); // Name of the Echo resource is used to name the subresources as well.
 
     // Performs action as decided by the `determine_action` function.
-    return match determine_action(&echo) {
+    match determine_action(&echo) {
         EchoAction::Create => {
             // Creates a deployment with `n` Echo service pods, but applies a finalizer first.
             // Finalizer is applied first, as the operator might be shut down and restarted
@@ -125,7 +127,7 @@ async fn reconcile(echo: Arc<Echo>, context: Arc<ContextData>) -> Result<Action,
         }
         // The resource is already in desired state, do nothing and re-check after 10 seconds
         EchoAction::NoOp => Ok(Action::requeue(Duration::from_secs(10))),
-    };
+    }
 }
 
 /// Resources arrives into reconciliation queue in a certain state. This function looks at
@@ -135,7 +137,8 @@ async fn reconcile(echo: Arc<Echo>, context: Arc<ContextData>) -> Result<Action,
 /// # Arguments
 /// - `echo`: A reference to `Echo` being reconciled to decide next action upon.
 fn determine_action(echo: &Echo) -> EchoAction {
-    return if echo.meta().deletion_timestamp.is_some() {
+    if echo.meta().deletion_timestamp.is_some() {
+        println!("\n\n==>Deleting");
         EchoAction::Delete
     } else if echo
         .meta()
@@ -143,10 +146,12 @@ fn determine_action(echo: &Echo) -> EchoAction {
         .as_ref()
         .map_or(true, |finalizers| finalizers.is_empty())
     {
+        println!("\n\n==>Creating");
         EchoAction::Create
     } else {
+        println!("\n\n==>NoOp");
         EchoAction::NoOp
-    };
+    }
 }
 
 /// Actions to be taken when a reconciliation fails - for whatever reason.
